@@ -6,10 +6,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const serviceAccount = require("./serviceAccountKey.json");
-
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
 });
 
 const db = admin.firestore();
@@ -36,8 +38,7 @@ app.post("/log", async (req, res) => {
             return res.json({ access: false });
         }
 
-        const userDoc = snapshot.docs[0];
-        const user = userDoc.data();
+        const user = snapshot.docs[0].data();
 
         if (user.status !== "approved") {
             await db.collection("logs").add({
@@ -61,7 +62,7 @@ app.post("/log", async (req, res) => {
 
         return res.json({
             access: true,
-            name: user.name
+            name: user.name,
         });
 
     } catch (error) {
@@ -70,6 +71,8 @@ app.post("/log", async (req, res) => {
     }
 });
 
-app.listen(3000, () => {
-    console.log("Server running on port 3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
