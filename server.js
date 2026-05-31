@@ -52,12 +52,56 @@ app.post("/log", async (req, res) => {
             return res.json({ access: false });
         }
 
+        const latestLogSnapshot = await db
+            .collection("logs")
+            .where("uid", "==", uid)
+            .where("action", "in", ["LOGIN", "LOGOUT"])
+            .orderBy("timestamp", "desc")
+            .limit(1)
+            .get();
+
+        let action = "LOGIN";
+
+        if (!latestLogSnapshot.empty) {
+
+            const lastLog = latestLogSnapshot.docs[0].data();
+
+            if (lastLog.timestamp) {
+
+                const now = Date.now();
+
+                const lastTime =
+                    lastLog.timestamp.toDate().getTime();
+
+                if (now - lastTime < 5000) {
+
+                    console.log("Duplicate ignored");
+
+                    return res.json({
+                        access: true,
+                        duplicate: true
+                    });
+                }
+            }
+
+            if (lastLog.action === "LOGIN") {
+                action = "LOGOUT";
+            }
+        }
+
         await db.collection("logs").add({
             uid,
             name: user.name,
             role: user.role,
-            action: "Access Granted",
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            action,
+            timestamp:
+                admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return res.json({
+            access: true,
+            name: user.name,
+            action,
         });
 
         return res.json({
