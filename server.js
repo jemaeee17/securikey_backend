@@ -16,6 +16,22 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
+function convertToMinutes(timeString) {
+    const [time, modifier] = timeString.split(" ");
+
+    let [hours, minutes] = time.split(":").map(Number);
+
+    if (modifier === "PM" && hours !== 12) {
+        hours += 12;
+    }
+
+    if (modifier === "AM" && hours === 12) {
+        hours = 0;
+    }
+
+    return hours * 60 + minutes;
+}
+
 app.post("/log", async (req, res) => {
     try {
         const { uid } = req.body;
@@ -25,6 +41,7 @@ app.post("/log", async (req, res) => {
         const snapshot = await db
             .collection("users")
             .where("rfidCardId", "==", uid)
+            .limit(1)
             .get();
 
         if (snapshot.empty) {
@@ -60,6 +77,89 @@ app.post("/log", async (req, res) => {
             .limit(1)
             .get();
 
+        if (snapshot.empty) {
+
+            await db.collection("logs").add({
+                uid,
+                name: "Unknown",
+                action: "Denied (Unknown Card)",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            return res.json({
+                access: false,
+                reason: "Unknown Card",
+            });
+        }
+
+        const user = snapshot.docs[0].data();
+
+        if (user.status !== "approved") {
+
+            await db.collection("logs").add({
+                uid,
+                name: user.name,
+                role: user.role,
+                action: "Denied (Not Approved)",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            return res.json({
+                access: false,
+                reason: "Not Approved",
+            });
+        }
+
+        const now = new Date();
+
+        const today = now.toLocaleDateString("en-US", {
+            weekday: "long",
+        });
+
+        const currentMinutes =
+            now.getHours() * 60 +
+            now.getMinutes();
+
+        const allowed = (user.schedule || []).some((item) => {
+
+            if (item.day !== today) {
+                return false;
+            }
+
+            const start = convertToMinutes(item.start);
+            const end = convertToMinutes(item.end);
+
+            return (
+                currentMinutes >= start &&
+                currentMinutes <= end
+            );
+
+        });
+
+        if (!allowed) {
+
+            await db.collection("logs").add({
+                uid,
+                name: user.name,
+                role: user.role,
+                action: "Denied (Outside Schedule)",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            return res.json({
+                access: false,
+                reason: "Outside Schedule",
+            });
+        }
+
+        const latestLogSnapshot = await db
+            .collection("logs")
+            .where("uid", "==", uid)
+            .where("action", "in", ["LOGIN", "LOGOUT"])
+            .orderBy("timestamp", "desc")
+            .limit(1)
+            .get();
+
         let action = "LOGIN";
 
         if (!latestLogSnapshot.empty) {
@@ -79,7 +179,9 @@ app.post("/log", async (req, res) => {
 
                     return res.json({
                         access: true,
-                        duplicate: true
+                        duplicate: true,
+                        action: lastLog.action,
+                        name: user.name,
                     });
                 }
             }
@@ -98,20 +200,21 @@ app.post("/log", async (req, res) => {
                 admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        return res.json({
-            access: true,
-            name: user.name,
-            action,
-        });
+        console.log(`${user.name} -> ${action}`);
 
         return res.json({
             access: true,
             name: user.name,
+            role: user.role,
+            action,
         });
 
     } catch (error) {
         console.error(error);
-        res.status(500).send("Error");
+        return res.status(500).json({
+            access: false,
+            reason: "Server Error",
+        });
     }
 });
 
