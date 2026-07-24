@@ -91,7 +91,18 @@ app.post("/log", async (req, res) => {
             });
         }
 
-        const user = snapshot.docs[0].data();
+        /*const user = snapshot.docs[0].data();*/
+
+        const userDoc = snapshot.docs[0];
+
+        console.log("Matched document ID:", userDoc.id);
+
+        const user = userDoc.data();
+
+        console.log(
+            "Matched user data:",
+            JSON.stringify(user, null, 2)
+        );
 
         const {
             day: today,
