@@ -7,6 +7,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
 admin.initializeApp({
     credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
@@ -91,8 +92,6 @@ app.post("/log", async (req, res) => {
             });
         }
 
-        /*const user = snapshot.docs[0].data();*/
-
         const userDoc = snapshot.docs[0];
 
         console.log("Matched document ID:", userDoc.id);
@@ -103,6 +102,22 @@ app.post("/log", async (req, res) => {
             "Matched user data:",
             JSON.stringify(user, null, 2)
         );
+
+        if (user.status !== "approved") {
+            await db.collection("logs").add({
+                uid,
+                name: user.name,
+                role: user.role,
+                action: "Denied (Not Approved)",
+                timestamp:
+                    admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            return res.json({
+                access: false,
+                reason: "NOT_APPROVED",
+            });
+        }
 
         const {
             day: today,
@@ -115,10 +130,7 @@ app.post("/log", async (req, res) => {
 
         const allowed = (user.schedule || []).some((item) => {
 
-            if (
-                item.status !== "approved" ||
-                item.day !== today
-            ) {
+            if (item.day !== today) {
                 return false;
             }
 
@@ -127,7 +139,6 @@ app.post("/log", async (req, res) => {
 
             console.log("Checking schedule:", {
                 day: item.day,
-                status: item.status,
                 start,
                 end,
                 currentMinutes,
@@ -168,15 +179,19 @@ app.post("/log", async (req, res) => {
         let action = "LOGIN";
 
         if (!latestLogSnapshot.empty) {
-            const lastLog = latestLogSnapshot.docs[0].data();
+
+            const lastLog =
+                latestLogSnapshot.docs[0].data();
 
             if (lastLog.timestamp) {
+
                 const now = Date.now();
 
                 const lastTime =
                     lastLog.timestamp.toDate().getTime();
 
                 if (now - lastTime < 5000) {
+
                     console.log("Duplicate scan ignored");
 
                     return res.json({
@@ -202,7 +217,7 @@ app.post("/log", async (req, res) => {
                 admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        console.log(`${user.name} -> ${action}`);
+        console.log(`${user.name} -> ${action} `);
 
         return res.json({
             access: true,
@@ -212,6 +227,7 @@ app.post("/log", async (req, res) => {
         });
 
     } catch (error) {
+
         console.error("Server error:", error);
 
         return res.status(500).json({
@@ -224,6 +240,6 @@ app.post("/log", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT} `);
 });
 
